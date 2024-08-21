@@ -14,8 +14,8 @@ plt.legend()
 plt.show()
 
 #绘制第n步结果对比
-plt.plot(range(len(prediction)), prediction[:,359,0])
-plt.plot(range(len(prediction)), true[:,359,0])
+plt.plot(range(len(prediction)), prediction[:,0,0])
+plt.plot(range(len(prediction)), true[:,0,0])
 # 添加图例
 plt.legend()
 # 显示图表

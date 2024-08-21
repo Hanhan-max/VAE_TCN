@@ -24,13 +24,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 train_dataloader,eval_dataloader,test_dataloader,mystand = getOneData(path=path,input_len=input_len,predicte_len=predicte_len,step_len=step_len,batch_size=128,isstn =True)
 # model = ATime(c_in,c_out,input_len,predicte_len,8,1,16,8,25,3)
-model = ATime(c_in,c_out,input_len,predicte_len,8,1,16,8,25,3)
+model = ATime(c_in,c_out,input_len,predicte_len,32,2,128,32,65,4)
 
 model = model.to(device)
 criterion = MyMseLoss()
 # criterion = MutiLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
 
 ## 非decoder训练
 # num_epochs = 40
@@ -40,9 +40,9 @@ scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 num_epochs = 100
 trainer(num_epochs, train_dataloader, eval_dataloader,model,criterion,optimizer,input_len,device,scheduler)
 result_np,true_np = test(model,test_dataloader,input_len,device)
-torch.save(model.state_dict(), '../save/time/model_outlayer_80.pth')
+torch.save(model.state_dict(), '../save/time/model_outlayer16_1_16_8_25_3_100.pth')
 if mystand != None:
     result_np = mystand.inverse_transform(result_np)
     true_np = mystand.inverse_transform(true_np)
-numpy.save('../save/time/yeWei_4step_80.npy', result_np)
-numpy.save('../save/time/yeWei_4steptrue_80.npy', true_np)
+numpy.save('../save/time/yeWei_4step16_1_16_8_25_3_100.npy', result_np)
+numpy.save('../save/time/yeWei_4steptrue16_1_16_8_25_3_100.npy', true_np)

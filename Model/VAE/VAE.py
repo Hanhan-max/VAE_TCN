@@ -3,7 +3,7 @@ import math
 import torch
 import torch.nn as nn
 
-
+from Model.TimePredicate.TrendPredicater import TCNLayer
 
 
 class vaeAttn(nn.Module):
@@ -40,7 +40,9 @@ class VaeEncoder(nn.Module):
     def __init__(self,embedding_dim,num_heads,d_model,drop=0.1):
         super(VaeEncoder, self).__init__()
         self.attn = vaeAttn(embedding_dim = embedding_dim,num_heads=num_heads,d_model=d_model)
-        self.fc1 = nn.Linear(embedding_dim,embedding_dim)
+        self.fc1 = TCNLayer(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=1, dropout_rate=0.1)
+        # self.fc1 = nn.Linear(embedding_dim,embedding_dim)
+
         self.fc2 = nn.Linear(embedding_dim,embedding_dim)
         self.drop = nn.Dropout(drop)
         self.lnorm_1 = nn.LayerNorm(embedding_dim)
@@ -103,10 +105,10 @@ class DataEmbedding(nn.Module):
         return self.dropout(x)
 
 class EncoderEnd(nn.Module):
-    def __init__(self,embedding_dim):
+    def __init__(self,embedding_dim,r_dim):
         super(EncoderEnd, self).__init__()
-        self.mean = nn.Linear(embedding_dim,embedding_dim)
-        self.logvar = nn.Linear(embedding_dim,embedding_dim)
+        self.mean = nn.Linear(embedding_dim,1)
+        self.logvar = nn.Linear(embedding_dim,1)
 
     def forward(self,encode):
         mean = self.mean(encode)
@@ -170,15 +172,24 @@ class AEup(nn.Module):
         return out
 
 class Time_AE(nn.Module):
-    def __init__(self,input_dim,embedding_dim,num_heads,d_model,e_num_layers=2,d_num_layers=2,drop=0.1):
+    def __init__(self,input_dim,embedding_dim,num_heads,d_model,e_num_layers=2,d_num_layers=2,r_dim=4,drop=0.1):
         super(Time_AE, self).__init__()
         self.embedding = DataEmbedding(input_dim,embedding_dim)
         self.encoder = AEdown(embedding_dim,num_heads,d_model,e_num_layers)
+        self.encoderend = EncoderEnd(embedding_dim,r_dim=r_dim)
+        self.fc = nn.Linear(1,embedding_dim)
         self.decoder = AEup(embedding_dim,num_heads,d_model,d_num_layers,output_dim=input_dim)
         self.silu = nn.SiLU()
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
 
     def forward(self,input):
         x = self.embedding(input)
         x = self.encoder(x)
-        x = self.decoder(x)
-        return x
+        # mean, logvar = self.encoderend(x)
+        # z =  self.silu(self.fc(self.reparameterize(mean, logvar )))
+        out = self.decoder(x)
+        return  out

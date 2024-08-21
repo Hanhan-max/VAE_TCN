@@ -5,6 +5,36 @@ from torch.utils.data import TensorDataset, DataLoader
 from tools.tools import getWindows, StandardScaler
 
 
+def getnpData(path,batch_size = 32):
+    data = np.load(path)
+    flag = data.shape[0]
+
+    # if isstn:
+    #     mystn = StandardScaler()
+    #     mystn.fit(data)
+    #     data = mystn.transform(data)
+    # else:
+    #     mystn = None
+
+    seg_train = int(flag * 0.6)
+    seg_test = int(flag * 0.8)
+
+    train_wind = torch.tensor(data[:seg_train, :], dtype=torch.float32)
+    eval_wind = torch.tensor(data[seg_train:seg_test, :], dtype=torch.float32)
+    test_wind = torch.tensor(data[seg_test:, :], dtype=torch.float32)
+
+    # 创建 TensorDataset
+    train_dataset = TensorDataset(train_wind)
+    eval_dataset = TensorDataset(eval_wind)
+    test_dataset = TensorDataset(test_wind)
+
+    # 创建 DataLoader
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+    eval_dataloader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+
+    return train_dataloader, eval_dataloader, test_dataloader
+
 def getOneData(path,input_len,predicte_len,step_len,batch_size=32,isstn = True):
     # 获取数据
     data = pd.read_csv(path)["值"]

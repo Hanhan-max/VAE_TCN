@@ -5,18 +5,21 @@ import torch
 from torch import nn, optim
 from tqdm import tqdm
 
-from Model.MyMseLoss import MyMseLoss
+from Model.MyMseLoss import MyMseLoss, VaeLoss
 from Model.TimePredicate.TrendPredicater import ATime
 from Model.VAE.VAE import Time_AE
-from tools.getData import getOneData
+from tools.getData import getOneData, getnpData
 
 path ='../data/processe_data/yeWei_4step.csv'
+vae_path ='../data/processe_data/VAE_traindata.npy'
+
 input_len = 720
 predicte_len=360
 c_in = 1
 c_out = 1
 
-train_dataloader, eval_dataloader, test_dataloader, mystand = getOneData(path,input_len,predicte_len,1,1,128)
+_, _, _, mystand = getOneData(path,input_len,predicte_len,1,1,128)
+train_dataloader, eval_dataloader, test_dataloader = getnpData(vae_path)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -26,30 +29,30 @@ def loss_function(recon_x, x, mu, logvar):
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     return BCE + KLD
 
-model = Time_AE(input_dim=1,embedding_dim=4,num_heads=4,d_model=256)
+model = Time_AE(input_dim=1,embedding_dim=2,num_heads=2,d_model=16,e_num_layers=2,d_num_layers=2)
 
 model = model.to(device)
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.01)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
-timemodel = ATime(c_in,c_out,input_len,predicte_len,8,1,16,8,25,3)
-state_dict = torch.load('../save/time/model_outlayer_80.pth')
+# timemodel = ATime(c_in,c_out,input_len,predicte_len,8,1,16,8,25,3)
+# state_dict = torch.load('../save/time/model_outlayer_80.pth')
 # 将state_dict加载到模型中
-timemodel.load_state_dict(state_dict)
-timemodel = timemodel.to(device)
-criterion = MyMseLoss()
+# timemodel.load_state_dict(state_dict)
+# timemodel = timemodel.to(device)
+criterion = VaeLoss()
 
 epochs = 40
 for epoch in tqdm(range(epochs)):
     model.train()
-    timemodel.eval()
+    # timemodel.eval()
     losses_train = []
     for i, item in enumerate(train_dataloader):
-        input = item[0][:, :input_len].to(device)
-        traget = item[0][:, input_len:].to(device)
-        input = timemodel(input)
+        input = item[0][:, :,0:1].to(device)
+        traget = item[0][:, :,1:].to(device)
+        # input = timemodel(input)
         out= model(input)
-        loss = criterion(out, traget)
+        loss = criterion(out, traget,input)
         losses_train.append(loss)
         optimizer.zero_grad()
         loss.backward()
@@ -60,11 +63,11 @@ for epoch in tqdm(range(epochs)):
         with torch.no_grad():
             losses = []
             for i, item in enumerate(eval_dataloader):
-                input = item[0][:, :input_len].to(device)
-                traget = item[0][:, input_len:].to(device)
-                input = timemodel(input)
-                out = model(input)
-                loss = criterion(out, traget)
+                input = item[0][:, :, 0:1].to(device)
+                traget = item[0][:, :, 1:].to(device)
+                # input = timemodel(input)
+                out= model(input)
+                loss = criterion(out, traget, input)
                 losses.append(loss)
             print(f'\nEpoch [{epoch + 1}/{epochs}], Eval_Loss: {sum(losses) / len(losses) :.4f}')
     scheduler.step()
@@ -76,9 +79,9 @@ result = []
 
 true = []
 for i, item in enumerate(test_dataloader):
-    input = item[0][:, :input_len].to(device)
-    traget = item[0][:, input_len:]
-    input = timemodel(input)
+    input = item[0][:, :, 0:1].to(device)
+    traget = item[0][:, :, 1:]
+    # input = timemodel(input)
     out = model(input)
     result.append(out.detach().cpu().numpy())
     true.append(traget)

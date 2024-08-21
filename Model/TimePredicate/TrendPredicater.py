@@ -151,8 +151,37 @@ class OutLayer(nn.Module):
 #     def forward(self,x):
 #         out_1 = self.fc_out(x)
 
+# 交叉注意力
+class crossattentionLayer(nn.Module):
+    def __init__(self,input_dim,num_heads,head_dim,return_dim):
+        super(crossattentionLayer, self).__init__()
+        self.dim = num_heads*head_dim
+        self.head =num_heads
+        self.head_dim =head_dim
+        self.kv_layer = nn.Linear(input_dim,self.dim*2)
+        self.q_layer = nn.Linear(input_dim,self.dim)
+        self.fc_out = nn.Linear(self.dim, return_dim)
+        self.soft = nn.Softmax(dim=3)
+
+    def forward(self, data, input, mask = None):
+        N = data.shape[0]
+        # L = data.shape[1]
+        kv = self.kv_layer(data)
+        k = kv[:,:,:self.dim].reshape(N,-1,self.head,self.head_dim).transpose(1, 2)
+        v = kv[:,:,self.dim:].reshape(N,-1,self.head,self.head_dim).transpose(1, 2)
+        q = self.q_layer(input).reshape(N,-1,self.head,self.head_dim).transpose(1, 2)
+
+        d_k = q.size(-1)
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)
+        attn = torch.softmax(scores, dim=-1)
+        output = torch.matmul(attn, v).transpose(1, 2).reshape(N,-1,self.dim)
+
+        output = self.fc_out(output)
+        return output,attn
+
+
 class mutistepOutLayer(nn.Module):
-    def __init__(self,input_len,output_len,input_dim,output_dim,out_step):
+    def __init__(self,input_len,output_len,hidden_dim,input_dim, num_heads, head_dim,output_dim,out_step):
         super(mutistepOutLayer, self).__init__()
         self.output_len = output_len
         self.output_dim = output_dim
@@ -160,26 +189,42 @@ class mutistepOutLayer(nn.Module):
         self.len = output_len/out_step
 
         self.result = None
-        self.fc_dim = nn.Linear(input_dim,output_dim)
+        self.att = AattentionLayer(input_dim=input_dim, num_heads=num_heads, head_dim=head_dim, output_dim=hidden_dim)
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.crossatt = crossattentionLayer(input_dim=output_dim,num_heads=num_heads,head_dim=head_dim,return_dim=hidden_dim)
+        self.norm2 = nn.LayerNorm(hidden_dim)
+        self.concat = nn.Conv1d(in_channels=hidden_dim, out_channels=output_dim,kernel_size=1)
+        self.output = nn.Linear(output_dim,output_dim)
+        self.drop = nn.Dropout(0.1)
         self.relu = nn.ReLU()
-        self.concat = nn.Conv1d(in_channels=2, out_channels=1,kernel_size=1)
-        self.fc_outs = nn.ModuleList([
-            nn.Linear(input_len,int(self.len*(i+1))) for i in range(out_step)
-        ])
+    def create_look_ahead_mask(self,size):
+        mask = torch.triu(torch.ones(size, size), diagonal=1).to('cuda:0')
+        return mask  # (seq_len, seq_len)
 
-    def forward(self,x):
+    def forward(self,x,decoder_input):
         # B,720,1
-        x = self.relu(self.fc_dim(x)).transpose(1,2)
-        outs = []
-        for fc_out in self.fc_outs:
-            out = fc_out(x)
-            _,_,len = out.shape
-            outs.append(out.transpose(1,2))
-            ## 相加
-            res =F.pad(out, (0, int(self.input_len - len)))
-            x = torch.cat((x, res), dim=1)
-            x = self.relu(self.concat(x))
-        return outs
+
+        decode =  self.att(decoder_input)
+        decode = self.drop(self.norm1(decoder_input + decode))
+
+        mask = self.create_look_ahead_mask(decode.shape[1])
+
+        out = self.crossatt(x,decode,mask)
+
+        out = self.drop(self.norm2(out + decode))
+
+        out = self.relu(self.concat(out))
+
+        out =self.output(out)
+
+        return out
+
+
+"""
+传入整个序列、
+"""
+
+
 
 class ATime(nn.Module):
     def __init__(self,c_in,c_out,input_len,output_len,embed_dim,num_heads,head_dim,hidden_dim,kernel_size=12,num_layers=4):
@@ -192,11 +237,11 @@ class ATime(nn.Module):
              range(num_layers - 1)])
 
         self.outlayer = OutLayer(input_len=input_len,output_len=output_len,input_dim=embed_dim,output_dim=c_out)
-        self.mutiout = mutistepOutLayer(input_len=input_len,output_len=output_len,input_dim=embed_dim,output_dim=c_out,out_step=3)
+        self.mutiout = mutistepOutLayer(input_len = input_len,output_len = output_len,hidden_dim = hidden_dim,input_dim =embed_dim, num_heads=num_heads, head_dim=head_dim,output_dim = 1)
 
-    def forward(self,input):
+    def forward(self,input,de_input):
         x = self.embed(input)
         for layer in self.atlayer:
             x = layer(x)
-        out = self.outlayer(x)
+        out = self.mutiout(x)
         return out
